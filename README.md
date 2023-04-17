@@ -6,5 +6,5 @@ Steps:
 2. Have a Neo4j DB created and install the GraphDataScience plugin
 3. Then run Streamlit 
 ```shell
-streamlit run 03_streamlit.py)
+streamlit run 03_streamlit.py
 ```
