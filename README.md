@@ -1,5 +1,5 @@
 # DataChat
-Code repo of AM23 short paper
+Code repo of AM23 short paper "DataChat: Prototyping a Conversational Agent for Dataset Search and Visualization"
 
 Steps:
 1. Create a python 3.9.12 environment
