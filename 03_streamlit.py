@@ -5,12 +5,28 @@
 # Reference: https://github.com/ChrisDelClea/streamlit-agraph
 
 ### driver
+import os
+from dotenv import load_dotenv
 from neo4j import GraphDatabase
+import openai
+import streamlit as st
+from streamlit_chat import message
+from streamlit_agraph import agraph, Node, Edge, Config
+from streamlit_agraph.config import Config, ConfigBuilder
 
-host = 'bolt://localhost:7687'
-user = 'neo4j'
-password = "XXXX"
+# Load environment variables from .env file
+load_dotenv()
+
+# Neo4j connection
+host = os.getenv('NEO4J_HOST')
+user = os.getenv('NEO4J_USER')
+password = os.getenv('NEO4J_PASSWORD')
 driver = GraphDatabase.driver(host, auth=(user, password))
+
+# OpenAI connection
+openai.api_base = os.getenv('OPENAI_API_BASE')
+openai.api_type = os.getenv('OPENAI_API_TYPE', 'azure')
+openai.api_key = os.getenv('OPENAI_API_KEY')
 
 
 def read_query(query, params={}):
@@ -84,15 +100,6 @@ MATCH (a:Dataset)-[:HAS_LOCATION]->(l:Location) WHERE (l.name = "United States" 
 # What are the latest datasets that include country level data?
 MATCH (a:Dataset)-[:HAS_LOCATION]->(l:Location) WHERE l.type = "country" RETURN a.name + " LINK: " +  a.url AS response ORDER BY a.date DESC LIMIT 3
 """
-
-import os
-import openai
-import streamlit as st
-from streamlit_chat import message
-from streamlit_agraph import agraph, Node, Edge, Config
-from streamlit_agraph.config import Config, ConfigBuilder
-
-openai.api_key = 'XXXX'
 
 ### eg
 # prompt_eg = "What are the earlest datasets?"
