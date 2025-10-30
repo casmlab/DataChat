@@ -8,14 +8,14 @@
 import os
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
-import openai
+from openai import AzureOpenAI
 import streamlit as st
 from streamlit_chat import message
 from streamlit_agraph import agraph, Node, Edge, Config
 from streamlit_agraph.config import Config, ConfigBuilder
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file (override=True forces reload)
+load_dotenv(override=True)
 
 # Neo4j connection
 host = os.getenv('NEO4J_HOST')
@@ -23,10 +23,61 @@ user = os.getenv('NEO4J_USER')
 password = os.getenv('NEO4J_PASSWORD')
 driver = GraphDatabase.driver(host, auth=(user, password))
 
-# OpenAI connection
-openai.api_base = os.getenv('OPENAI_API_BASE')
-openai.api_type = os.getenv('OPENAI_API_TYPE', 'azure')
-openai.api_key = os.getenv('OPENAI_API_KEY')
+# OpenAI connection (Azure)
+client = AzureOpenAI(
+    api_version=os.getenv('OPENAI_API_VERSION', '2024-12-01-preview'),
+    azure_endpoint=os.getenv('OPENAI_API_BASE'),
+    api_key=os.getenv('OPENAI_API_KEY')
+)
+
+
+def check_connections():
+    """
+    Check Neo4j and OpenAI connections.
+    Returns a tuple of (neo4j_status, openai_status, error_messages)
+    """
+    neo4j_ok = False
+    openai_ok = False
+    errors = []
+    
+    # Check Neo4j connection
+    try:
+        with driver.session() as session:
+            result = session.run("RETURN 1 AS test")
+            result.single()
+            neo4j_ok = True
+    except Exception as e:
+        errors.append(f"Neo4j connection failed: {str(e)}")
+    
+    # Check OpenAI connection
+    try:
+        # Force reload environment variables
+        load_dotenv(override=True)
+        deployment_name = os.getenv('OPENAI_DEPLOYMENT_NAME', 'gpt-35-turbo')
+        
+        test_response = client.chat.completions.create(
+            model=deployment_name,
+            max_tokens=5,
+            messages=[{"role": "user", "content": "test"}]
+        )
+        openai_ok = True
+    except Exception as e:
+        error_msg = str(e)
+        errors.append(f"OpenAI connection failed: {error_msg}")
+        errors.append(f"Deployment used: {deployment_name}")
+        errors.append(f"Deployment from env: {os.getenv('OPENAI_DEPLOYMENT_NAME')}")
+        errors.append(f"Endpoint: {os.getenv('OPENAI_API_BASE')}")
+        
+        # Provide helpful suggestions based on error type
+        if "404" in error_msg or "DeploymentNotFound" in error_msg:
+            errors.append("→ The deployment name might be incorrect.")
+            errors.append("→ Check Azure Portal > Azure OpenAI > Deployments for the exact name.")
+        elif "401" in error_msg or "Unauthorized" in error_msg:
+            errors.append("→ API key might be incorrect or expired.")
+        elif "endpoint" in error_msg.lower():
+            errors.append("→ Check that OPENAI_API_BASE is correct.")
+    
+    return neo4j_ok, openai_ok, errors
 
 
 def read_query(query, params={}):
@@ -104,15 +155,15 @@ MATCH (a:Dataset)-[:HAS_LOCATION]->(l:Location) WHERE l.type = "country" RETURN 
 ### eg
 # prompt_eg = "What are the earlest datasets?"
 # prompt_input=examples_eg + "\n#" + prompt_eg
-# completions = openai.ChatCompletion.create(
-#     model="gpt-3.5-turbo",
+# completions = client.chat.completions.create(
+#     model=os.getenv('OPENAI_DEPLOYMENT_NAME', 'gpt-3.5-turbo'),
 #     max_tokens=1000,
 #     n=1,
 #     stop=None,
 #     temperature=0.5,
 #     messages=[{"role": "user", "content": prompt_input}]
 # )
-# cypher_query = completions['choices'][0]['message']['content']
+# cypher_query = completions.choices[0].message.content
 # message = read_query(cypher_query)
 # print(message)
 # print(cypher_query)
@@ -120,18 +171,40 @@ MATCH (a:Dataset)-[:HAS_LOCATION]->(l:Location) WHERE l.type = "country" RETURN 
 
 st.title("DataChat: Chat with ICPSR Datasets")
 
+# Check connections and display status in sidebar
+with st.sidebar:
+    st.header("Connection Status")
+    if st.button("Check Connections"):
+        with st.spinner("Checking connections..."):
+            neo4j_ok, openai_ok, errors = check_connections()
+            
+            if neo4j_ok:
+                st.success("✅ Neo4j: Connected")
+            else:
+                st.error("❌ Neo4j: Disconnected")
+            
+            if openai_ok:
+                st.success("✅ OpenAI: Connected")
+            else:
+                st.error("❌ OpenAI: Disconnected")
+            
+            if errors:
+                st.error("**Error Details:**")
+                for error in errors:
+                    st.text(error)
+
 def generate_response(prompt):
     #prompt_eg = "What are the earlest datasets?"
     prompt_input=examples + "\n#" + prompt
-    completions = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+    completions = client.chat.completions.create(
+        model=os.getenv('OPENAI_DEPLOYMENT_NAME', 'gpt-3.5-turbo'),
         max_tokens=1000,
         n=1,
         stop=None,
         temperature=0.5,
         messages=[{"role": "user", "content": prompt_input}]
     )
-    cypher_query = completions['choices'][0]['message']['content']
+    cypher_query = completions.choices[0].message.content
     message = read_query(cypher_query) # list of string
     nodes, edges = read_graph(message)
     return message, nodes, edges, cypher_query
